@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ultimate Memory Game</title>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+  font-family: Arial, sans-serif;
+  background: #121212;
+  color: #fff;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+h1 { margin: 15px 0 5px; }
+
+/* hyperlink style */
+.game-link {
+  color: #ffcc00;
+  text-decoration: none;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+.game-link:hover {
+  text-decoration: underline;
+}
+
+.controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+button, select {
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+}
+
+button:hover { background: #ffcc00; }
+
+.stats {
+  margin: 10px;
+  display: flex;
+  gap: 20px;
+}
+
+.game-board {
+  display: grid;
+  gap: 12px;
+  perspective: 1000px;
+  margin-bottom: 30px;
+}
+
+.card {
+  width: 80px;
+  height: 80px;
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 0.5s;
+  cursor: pointer;
+}
+
+.card.flip,
+.card.hint,
+.card.matched {
+  transform: rotateY(180deg);
+}
+
+.card.matched {
+  pointer-events: none;
+  filter: brightness(0.7);
+}
+
+.card-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  border-radius: 10px;
+}
+
+.card-front {
+  background: #ffcc00;
+  color: #333;
+  transform: rotateY(180deg);
+}
+
+.card-back {
+  background: #333;
+}
+
+.win-screen {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.9);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.win-screen.show { display: flex; }
+
+/* ---------- RESPONSIVE DESIGN ---------- */
+
+/* Tablet */
+@media (max-width: 768px) {
+  .card {
+    width: 65px;
+    height: 65px;
+  }
+  .card-face {
+    font-size: 26px;
+  }
+}
+
+/* Mobile */
+@media (max-width: 480px) {
+  .card {
+    width: 55px;
+    height: 55px;
+  }
+  .card-face {
+    font-size: 22px;
+  }
+  .stats {
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+  }
+  .controls {
+    flex-direction: column;
+    width: 90%;
+  }
+  button, select {
+    width: 100%;
+  }
+  h1 {
+    font-size: 20px;
+    text-align: center;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<h1>🧠 Ultimate Memory Game</h1>
+
+<!-- Hyperlink (change URL after hosting) -->
+<a class="game-link" 
+   href="https://your-username.github.io/memory-game/" 
+   target="_blank">
+   🔗 Play Online / Share Game
+</a>
+
+<div class="controls">
+  <select id="difficulty">
+    <option value="4">Easy (4x4)</option>
+    <option value="6">Hard (6x6)</option>
+  </select>
+  <button onclick="startGame()">▶ Start / Restart</button>
+  <button onclick="useHint()">🔍 Hint</button>
+</div>
+
+<div class="stats">
+  <div>⏱️ <span id="time">0</span>s</div>
+  <div>🎯 <span id="moves">0</span></div>
+  <div>⭐ <span id="score">0</span></div>
+</div>
+
+<div class="game-board" id="gameBoard"></div>
+
+<div class="win-screen" id="winScreen">
+  <h2>🎉 You Win!</h2>
+  <p>Time: <span id="finalTime"></span>s</p>
+  <p>Moves: <span id="finalMoves"></span></p>
+  <p>Score: <span id="finalScore"></span></p>
+  <button onclick="startGame()">Play Again</button>
+</div>
+
+<!-- Sounds -->
+<audio id="flipSound" src="https://assets.mixkit.co/sfx/preview/mixkit-card-flip-1932.mp3"></audio>
+<audio id="matchSound" src="https://assets.mixkit.co/sfx/preview/mixkit-achievement-bell-600.mp3"></audio>
+<audio id="winSound" src="https://assets.mixkit.co/sfx/preview/mixkit-game-level-completed-2059.mp3"></audio>
+
+<script>
+const emojis = [
+  '🍎','🍌','🍇','🍓','🍒','🍍','🥝','🍉',
+  '🥑','🍑','🍋','🍊','🥥','🍈','🍐','🍏',
+  '🌸','🌼'
+];
+
+let boardSize = 4;
+let cards = [];
+let flipped = [];
+let lock = false;
+let moves = 0;
+let matches = 0;
+let score = 0;
+let time = 0;
+let timer;
+let hintUsed = false;
+
+const board = document.getElementById('gameBoard');
+const timeEl = document.getElementById('time');
+const movesEl = document.getElementById('moves');
+const scoreEl = document.getElementById('score');
+const winScreen = document.getElementById('winScreen');
+
+function startGame() {
+  boardSize = Number(document.getElementById('difficulty').value);
+  resetStats();
+  createBoard();
+  startTimer();
+  winScreen.classList.remove('show');
+}
+
+function resetStats() {
+  clearInterval(timer);
+  time = moves = matches = score = 0;
+  hintUsed = false;
+  timeEl.textContent = movesEl.textContent = scoreEl.textContent = 0;
+}
+
+function startTimer() {
+  timer = setInterval(() => {
+    time++;
+    timeEl.textContent = time;
+  }, 1000);
+}
+
+function createBoard() {
+  board.innerHTML = '';
+  board.style.gridTemplateColumns = `repeat(${boardSize}, 1fr)`;
+
+  const totalPairs = (boardSize * boardSize) / 2;
+  cards = emojis.slice(0, totalPairs);
+  cards = [...cards, ...cards].sort(() => Math.random() - 0.5);
+
+  cards.forEach(symbol => {
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    card.innerHTML = `
+      <div class="card-face card-front">${symbol}</div>
+      <div class="card-face card-back">?</div>
+    `;
+
+    card.onclick = () => flipCard(card, symbol);
+    board.appendChild(card);
+  });
+}
+
+function flipCard(card, symbol) {
+  if (lock || card.classList.contains('flip')) return;
+
+  document.getElementById('flipSound').play();
+  card.classList.add('flip');
+  flipped.push({ card, symbol });
+
+  if (flipped.length === 2) {
+    moves++;
+    movesEl.textContent = moves;
+    checkMatch();
+  }
+}
+
+function checkMatch() {
+  lock = true;
+  const [a, b] = flipped;
+
+  if (a.symbol === b.symbol) {
+    document.getElementById('matchSound').play();
+    a.card.classList.remove('flip');
+    b.card.classList.remove('flip');
+    a.card.classList.add('matched');
+    b.card.classList.add('matched');
+
+    matches++;
+    score += 100;
+    scoreEl.textContent = score;
+    flipped = [];
+    lock = false;
+
+    if (matches === cards.length / 2) winGame();
+  } else {
+    setTimeout(() => {
+      a.card.classList.remove('flip');
+      b.card.classList.remove('flip');
+      flipped = [];
+      lock = false;
+    }, 900);
+  }
+}
+
+function useHint() {
+  if (lock || hintUsed) return;
+
+  lock = true;
+  hintUsed = true;
+  score = Math.max(0, score - 50);
+  scoreEl.textContent = score;
+
+  const hiddenCards = document.querySelectorAll('.card:not(.matched):not(.flip)');
+  hiddenCards.forEach(card => card.classList.add('hint'));
+
+  setTimeout(() => {
+    hiddenCards.forEach(card => card.classList.remove('hint'));
+    lock = false;
+  }, 1500);
+}
+
+function winGame() {
+  clearInterval(timer);
+  document.getElementById('winSound').play();
+  document.getElementById('finalTime').textContent = time;
+  document.getElementById('finalMoves').textContent = moves;
+  document.getElementById('finalScore').textContent = score;
+  winScreen.classList.add('show');
+}
+</script>
+
+</body>
+</html>
